@@ -214,7 +214,8 @@ fn validate_git_repositories(repositories: &Arc<[String]>) -> Result<Vec<gix::Re
     for repository in repositories.iter() {
         let git_repository = gix::open(repository);
         if git_repository.is_err() {
-            return Err(git_repository.err().unwrap().to_string());
+            println!("This is not git repository");
+            continue;
         }
         git_repositories.push(git_repository.ok().unwrap());
     }

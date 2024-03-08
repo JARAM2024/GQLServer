@@ -32,7 +32,8 @@ impl AuthSource for DummyAuthSource {
 
 #[tokio::main]
 async fn main() {
-    let parameters = DefaultServerParameterProvider::default();
+    let mut parameters = DefaultServerParameterProvider::default();
+    parameters.server_version = String::from("15");
     let authenticator = Arc::new(MakeMd5PasswordAuthStartupHandler::new(
         Arc::new(DummyAuthSource),
         Arc::new(parameters),
