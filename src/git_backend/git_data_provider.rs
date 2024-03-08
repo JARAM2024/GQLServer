@@ -1,3 +1,6 @@
+use std::fs;
+use std::path::PathBuf;
+
 use gitql_ast::environment::Environment;
 use gitql_ast::expression::Expression;
 use gitql_ast::object::GitQLObject;
@@ -83,8 +86,6 @@ fn select_references(
     titles: &[String],
     fields_values: &[Box<dyn Expression>],
 ) -> Result<Group, String> {
-    let repo_path = repo.path().to_str().unwrap().to_string();
-
     let mut rows: Vec<Row> = vec![];
     let git_references = repo.references();
     if git_references.is_err() {
@@ -145,7 +146,7 @@ fn select_references(
             }
 
             if field_name == "repo" {
-                values.push(Value::Text(repo_path.to_string()));
+                values.push(Value::Text(repo_clear_name(&repo)));
                 continue;
             }
 
@@ -166,8 +167,6 @@ fn select_commits(
     titles: &[String],
     fields_values: &[Box<dyn Expression>],
 ) -> Result<Group, String> {
-    let repo_path = repo.path().to_str().unwrap().to_string();
-
     let mut rows: Vec<Row> = vec![];
     let head_id = repo.head_id();
     if head_id.is_err() {
@@ -238,7 +237,7 @@ fn select_commits(
             }
 
             if field_name == "repo" {
-                values.push(Value::Text(repo_path.to_string()));
+                values.push(Value::Text(repo_clear_name(&repo)));
                 continue;
             }
 
@@ -261,7 +260,6 @@ fn select_branches(
 ) -> Result<Group, String> {
     let mut rows: Vec<Row> = vec![];
 
-    let repo_path = repo.path().to_str().unwrap().to_string();
     let platform = repo.references().unwrap();
     let local_branches = platform.local_branches().unwrap();
     let remote_branches = platform.remote_branches().unwrap();
@@ -332,7 +330,7 @@ fn select_branches(
             }
 
             if field_name == "repo" {
-                values.push(Value::Text(repo_path.to_string()));
+                values.push(Value::Text(repo_clear_name(&repo)));
                 continue;
             }
 
@@ -361,7 +359,6 @@ fn select_diffs(
 
     let mut rows: Vec<Row> = vec![];
     let revwalk = repo.head_id().unwrap().ancestors().all().unwrap();
-    let repo_path = repo.path().to_str().unwrap().to_string();
 
     let mut rewrite_cache = repo
         .diff_resource_cache(gix::diff::blob::pipeline::Mode::ToGit, Default::default())
@@ -408,7 +405,7 @@ fn select_diffs(
             }
 
             if field_name == "repo" {
-                values.push(Value::Text(repo_path.to_string()));
+                values.push(Value::Text(repo_clear_name(&repo)));
                 continue;
             }
 
@@ -487,7 +484,6 @@ fn select_tags(
 ) -> Result<Group, String> {
     let platform = repo.references().unwrap();
     let tag_names = platform.tags().unwrap();
-    let repo_path = repo.path().to_str().unwrap().to_string();
 
     let names_len = fields_names.len() as i64;
     let values_len = fields_values.len() as i64;
@@ -520,7 +516,7 @@ fn select_tags(
             }
 
             if field_name == "repo" {
-                values.push(Value::Text(repo_path.to_string()));
+                values.push(Value::Text(repo_clear_name(&repo)));
                 continue;
             }
 
@@ -532,4 +528,13 @@ fn select_tags(
     }
 
     Ok(Group { rows })
+}
+
+fn repo_clear_name(repo: &gix::Repository) -> String {
+    let new = fs::canonicalize(repo.path().parent().unwrap())
+        .ok()
+        .unwrap();
+    let new_path = PathBuf::from_iter(new.components().last());
+
+    new_path.to_str().unwrap().to_string()
 }
