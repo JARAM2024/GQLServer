@@ -292,6 +292,12 @@ fn encode_row(
         for value in row.values.iter() {
             match value {
                 Value::Text(text) => encoder.encode_field(&text).unwrap(),
+                Value::Integer(int) => encoder.encode_field(&int).unwrap(),
+                Value::Float(float) => encoder.encode_field(&float).unwrap(),
+                Value::Boolean(bool) => encoder.encode_field(&bool).unwrap(),
+                Value::Time(time) => encoder.encode_field(&time).unwrap(),
+                Value::Date(date) => encoder.encode_field(&date).unwrap(),
+                Value::DateTime(date) => encoder.encode_field(&date).unwrap(),
                 _ => encoder.encode_field(&None::<i8>).unwrap(),
             }
         }
@@ -314,14 +320,42 @@ fn encode_title(string: &str, index: usize) -> PgWireResult<FieldInfo> {
             String::from(string),
             None,
             None,
-            Type::NUMERIC,
+            Type::INT8,
+            Format::UnifiedText.format_for(index),
+        )),
+        DataType::Float => Ok(FieldInfo::new(
+            String::from(string),
+            None,
+            None,
+            Type::FLOAT8,
+            Format::UnifiedText.format_for(index),
+        )),
+        DataType::Boolean => Ok(FieldInfo::new(
+            String::from(string),
+            None,
+            None,
+            Type::BOOL,
+            Format::UnifiedText.format_for(index),
+        )),
+        DataType::Time => Ok(FieldInfo::new(
+            String::from(string),
+            None,
+            None,
+            Type::TIME,
+            Format::UnifiedText.format_for(index),
+        )),
+        DataType::Date => Ok(FieldInfo::new(
+            String::from(string),
+            None,
+            None,
+            Type::DATE,
             Format::UnifiedText.format_for(index),
         )),
         DataType::DateTime => Ok(FieldInfo::new(
             String::from(string),
             None,
             None,
-            Type::DATE,
+            Type::TIME,
             Format::UnifiedText.format_for(index),
         )),
         _ => Err(PgWireError::IoError(Error::new(
