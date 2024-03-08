@@ -1,0 +1,18 @@
+[package]
+name = "GQLServer"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = { version =  "0.1.77" }
+features = "0.10.0"
+futures = "0.3.30"
+gitql-ast = "0.13.0"
+gitql-engine = "0.15.0"
+gitql-parser = "0.14.0"
+gix = "0.58.0"
+lazy_static = "1.4.0"
+pgwire = "0.19.2"
+tokio = { version = "1.36.0", features = [ "macros", "rt-multi-thread" ] }
