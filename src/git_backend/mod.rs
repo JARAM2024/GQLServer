@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{self, Error, ErrorKind};
+use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -187,9 +187,15 @@ impl MakeGitQLBackend {
     pub fn new(path: Option<String>) -> MakeGitQLBackend {
         let entries = fs::read_dir(path.as_deref().unwrap_or("."))
             .unwrap()
-            .map(|res| res.map(|e| e.path().into_os_string().into_string().unwrap()))
-            .collect::<Result<Vec<_>, io::Error>>()
-            .unwrap();
+            .filter_map(|entry| {
+                let entry = entry.ok().unwrap();
+                let path = entry.path();
+                if path.is_dir() {
+                    return path.into_os_string().into_string().ok();
+                }
+                None
+            })
+            .collect::<Vec<_>>();
 
         MakeGitQLBackend {
             repositories: Arc::from(entries),

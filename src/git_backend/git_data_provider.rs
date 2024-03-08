@@ -536,5 +536,5 @@ fn repo_clear_name(repo: &gix::Repository) -> String {
         .unwrap();
     let new_path = PathBuf::from_iter(new.components().last());
 
-    new_path.to_str().unwrap().to_string()
+    new_path.into_os_string().into_string().unwrap()
 }
