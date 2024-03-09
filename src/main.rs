@@ -2,12 +2,13 @@ use std;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+
 use pgwire::api::auth::md5pass::{hash_md5_password, MakeMd5PasswordAuthStartupHandler};
 use pgwire::api::auth::{AuthSource, DefaultServerParameterProvider, LoginInfo, Password};
-
 use pgwire::api::MakeHandler;
 use pgwire::error::PgWireResult;
 use pgwire::tokio::process_socket;
+
 use tokio::net::TcpListener;
 
 use git_backend::MakeGitQLBackend;
