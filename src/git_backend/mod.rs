@@ -3,10 +3,13 @@ use std::io::{Error, ErrorKind};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use gitql_ast::statement::{Query, SelectStatement};
 use pgwire::api::portal::Portal;
-use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler, StatementOrPortal};
-use pgwire::api::results::{DescribeResponse, FieldInfo, QueryResponse, Response};
-use pgwire::api::stmt::NoopQueryParser;
+use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
+use pgwire::api::results::{
+    DescribePortalResponse, DescribeStatementResponse, FieldInfo, QueryResponse, Response, Tag,
+};
+use pgwire::api::stmt::{NoopQueryParser, StoredStatement};
 use pgwire::api::{ClientInfo, MakeHandler};
 use pgwire::error::{PgWireError, PgWireResult};
 
@@ -44,6 +47,9 @@ impl SimpleQueryHandler for GitQLBackend {
         C: ClientInfo + Unpin + Send + Sync,
     {
         let git_repo_result = validate_git_repositories(&self.repositories);
+        if query.to_uppercase().starts_with("DEALLOCATE") {
+            return Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))]);
+        }
 
         if git_repo_result.is_err() {
             println!("Failed to load git repositories");
@@ -60,6 +66,7 @@ impl SimpleQueryHandler for GitQLBackend {
         };
 
         let mut env = Environment::new(schema);
+        let query = query.split(';').next().unwrap();
         let tokenizer_result = tokenizer::tokenize(query.to_string());
         if tokenizer_result.is_err() {
             println!("Cannot tokenize result");
@@ -80,10 +87,13 @@ impl SimpleQueryHandler for GitQLBackend {
 
         let parser_result = parser::parse_gql(tokens, &mut env);
         if parser_result.is_err() {
+            let parser_err = parser_result.err().unwrap();
+            let error_message =
+                parser_err.message().to_owned() + "\nHelp: " + &parser_err.helps().join("\n");
             println!("Cannot parse result");
             return Err(PgWireError::IoError(Error::new(
                 ErrorKind::Other,
-                parser_result.err().unwrap().message().to_owned(),
+                error_message,
             )));
         }
 
@@ -138,10 +148,7 @@ impl SimpleQueryHandler for GitQLBackend {
             ))]);
         }
 
-        return Err(PgWireError::IoError(Error::new(
-            ErrorKind::Other,
-            "Failed to make result",
-        )));
+        Ok(vec![Response::Execution(Tag::new("OK").with_rows(1))])
     }
 }
 
@@ -157,30 +164,200 @@ impl ExtendedQueryHandler for GitQLBackend {
     async fn do_query<'a, 'b: 'a, C>(
         &'b self,
         _client: &mut C,
-        _portal: &'a Portal<Self::Statement>,
+        portal: &'a Portal<Self::Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response<'a>>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        return Err(PgWireError::IoError(Error::new(
-            ErrorKind::Other,
-            "Unimplemented",
-        )));
+        let git_repo_result = validate_git_repositories(&self.repositories);
+        let query = &portal.statement.statement;
+        if query.to_lowercase().starts_with("set") {
+            return Ok(Response::Execution(Tag::new("OK").with_rows(1)));
+        }
+
+        if git_repo_result.is_err() {
+            println!("Failed to load git repositories");
+            return Err(PgWireError::IoError(Error::new(
+                ErrorKind::Other,
+                git_repo_result.err().unwrap(),
+            )));
+        }
+
+        let repos = git_repo_result.ok().unwrap();
+        let schema = Schema {
+            tables_fields_names: TABLES_FIELDS_NAMES.to_owned(),
+            tables_fields_types: TABLES_FIELDS_TYPES.to_owned(),
+        };
+
+        let mut env = Environment::new(schema);
+        let query = query.split(';').next().unwrap();
+        let tokenizer_result = tokenizer::tokenize(query.to_string());
+        if tokenizer_result.is_err() {
+            println!("Cannot tokenize result");
+            return Err(PgWireError::IoError(Error::new(
+                ErrorKind::Other,
+                tokenizer_result.err().unwrap().message().to_owned(),
+            )));
+        }
+
+        let tokens = tokenizer_result.ok().unwrap();
+        if tokens.is_empty() {
+            println!("Empty Tokens");
+            return Err(PgWireError::IoError(Error::new(
+                ErrorKind::Other,
+                "Empty Tokens",
+            )));
+        }
+
+        let parser_result = parser::parse_gql(tokens, &mut env);
+        if parser_result.is_err() {
+            let parser_err = parser_result.err().unwrap();
+            let error_message =
+                parser_err.message().to_owned() + "\nHelp: " + &parser_err.helps().join("\n");
+            println!("Cannot parse result");
+            return Err(PgWireError::IoError(Error::new(
+                ErrorKind::Other,
+                error_message,
+            )));
+        }
+
+        let query_node = parser_result.ok().unwrap();
+
+        let provider: Box<dyn DataProvider> = Box::new(GitDataProvider::new(repos.to_vec()));
+        let evaluation_result = engine::evaluate(&mut env, &provider, query_node);
+
+        if evaluation_result.is_err() {
+            println!("Cannot evaluate result");
+            return Err(PgWireError::IoError(Error::new(
+                ErrorKind::Other,
+                evaluation_result.err().unwrap(),
+            )));
+        }
+        let engine_result = evaluation_result.ok().unwrap();
+
+        if let SelectedGroups(mut groups, hidden_selection) = engine_result {
+            let mut indexes = vec![];
+            for (index, title) in groups.titles.iter().enumerate() {
+                if hidden_selection.contains(title) {
+                    indexes.insert(0, index);
+                }
+            }
+
+            if groups.len() > 1 {
+                groups.flat();
+            }
+
+            for index in indexes {
+                groups.titles.remove(index);
+
+                for row in &mut groups.groups[0].rows {
+                    row.values.remove(index);
+                }
+            }
+
+            let mut fields_info: Vec<FieldInfo> = vec![];
+
+            for (index, title) in groups.titles.iter().enumerate() {
+                let field_result = encode_column(title, index);
+                if field_result.is_err() {
+                    continue;
+                }
+                fields_info.push(field_result.ok().unwrap());
+            }
+
+            let result = encode_row(&groups, Arc::new(fields_info.clone()));
+            return Ok(Response::Query(QueryResponse::new(
+                Arc::new(fields_info),
+                result,
+            )));
+        }
+
+        Ok(Response::Execution(Tag::new("OK").with_rows(1)))
     }
 
-    async fn do_describe<C>(
+    async fn do_describe_statement<C>(
         &self,
         _client: &mut C,
-        _target: StatementOrPortal<'_, Self::Statement>,
-    ) -> PgWireResult<DescribeResponse>
+        stmt: &StoredStatement<Self::Statement>,
+    ) -> PgWireResult<DescribeStatementResponse>
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
+        let param_types = stmt.parameter_types.clone();
+        let statement = &stmt.statement;
+        println!("Statement {:?}, {}", param_types, statement);
+
         return Err(PgWireError::IoError(Error::new(
             ErrorKind::Other,
-            "Unimplemented",
+            "Failed to make statement result",
         )));
+    }
+
+    async fn do_describe_portal<C>(
+        &self,
+        _client: &mut C,
+        portal: &Portal<Self::Statement>,
+    ) -> PgWireResult<DescribePortalResponse> {
+        if portal.statement.statement.to_lowercase().starts_with("set") {
+            return Ok(DescribePortalResponse::new(vec![]));
+        }
+
+        let schema = Schema {
+            tables_fields_names: TABLES_FIELDS_NAMES.to_owned(),
+            tables_fields_types: TABLES_FIELDS_TYPES.to_owned(),
+        };
+
+        let mut env = Environment::new(schema);
+        let query = &portal.statement.statement.split(';').next().unwrap();
+        let tokenizer_result = tokenizer::tokenize(query.to_string());
+        if tokenizer_result.is_err() {
+            println!("Cannot tokenize result");
+            return Err(PgWireError::IoError(Error::new(
+                ErrorKind::Other,
+                tokenizer_result.err().unwrap().message().to_owned(),
+            )));
+        }
+
+        let tokens = tokenizer_result.ok().unwrap();
+        if tokens.is_empty() {
+            println!("Empty Tokens");
+            return Err(PgWireError::IoError(Error::new(
+                ErrorKind::Other,
+                "Empty Tokens",
+            )));
+        }
+
+        let parser_result = parser::parse_gql(tokens, &mut env);
+        if parser_result.is_err() {
+            let parser_err = parser_result.err().unwrap();
+            let error_message =
+                parser_err.message().to_owned() + "\nHelp: " + &parser_err.helps().join("\n");
+            println!("Cannot parse result");
+            return Err(PgWireError::IoError(Error::new(
+                ErrorKind::Other,
+                error_message,
+            )));
+        }
+
+        let query_node = parser_result.ok().unwrap();
+        match query_node {
+            Query::Select(select_query) => match select_query.statements.get("select") {
+                Some(statement) => match statement.as_any().downcast_ref::<SelectStatement>() {
+                    Some(select_statement) => Ok(DescribePortalResponse::new(
+                        select_statement
+                            .fields_names
+                            .iter()
+                            .enumerate()
+                            .map(|(index, title)| encode_column(title, index).ok().unwrap())
+                            .collect(),
+                    )),
+                    None => Ok(DescribePortalResponse::new(vec![])),
+                },
+                None => Ok(DescribePortalResponse::new(vec![])),
+            },
+            _ => Ok(DescribePortalResponse::new(vec![])),
+        }
     }
 }
 

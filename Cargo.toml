@@ -9,10 +9,10 @@ edition = "2021"
 async-trait = { version = "0.1.77" }
 features = "0.10.0"
 futures = "0.3.30"
-gitql-ast = { git = "https://github.com/JARAM2024/GQL.git", package = 'gitql-ast' }
-gitql-engine = { git = "https://github.com/JARAM2024/GQL.git", package = 'gitql-engine' }
-gitql-parser = { git = "https://github.com/JARAM2024/GQL.git", package = 'gitql-parser' }
+gitql-ast = { git = "https://github.com/JARAM2024/GQL.git", package = "gitql-ast" }
+gitql-engine = { git = "https://github.com/JARAM2024/GQL.git", package = "gitql-engine" }
+gitql-parser = { git = "https://github.com/JARAM2024/GQL.git", package = "gitql-parser" }
 gix = "0.60.0"
 lazy_static = "1.4.0"
-pgwire = "0.19.2"
+pgwire = "0.20.0"
 tokio = { version = "1.36.0", features = ["macros", "rt-multi-thread"] }
