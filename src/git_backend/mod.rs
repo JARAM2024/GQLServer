@@ -49,7 +49,7 @@ impl SimpleQueryHandler for GitQLBackend {
             println!("Failed to load git repositories");
             return Err(PgWireError::IoError(Error::new(
                 ErrorKind::Other,
-                "Failed to laod git repositories",
+                git_repo_result.err().unwrap(),
             )));
         }
 
@@ -65,7 +65,7 @@ impl SimpleQueryHandler for GitQLBackend {
             println!("Cannot tokenize result");
             return Err(PgWireError::IoError(Error::new(
                 ErrorKind::Other,
-                "Failed to tokenize result",
+                tokenizer_result.err().unwrap().message().to_owned(),
             )));
         }
 
@@ -83,7 +83,7 @@ impl SimpleQueryHandler for GitQLBackend {
             println!("Cannot parse result");
             return Err(PgWireError::IoError(Error::new(
                 ErrorKind::Other,
-                "Failed to parse result",
+                parser_result.err().unwrap().message().to_owned(),
             )));
         }
 
@@ -96,7 +96,7 @@ impl SimpleQueryHandler for GitQLBackend {
             println!("Cannot evaluate result");
             return Err(PgWireError::IoError(Error::new(
                 ErrorKind::Other,
-                "Failed to evaluate result",
+                evaluation_result.err().unwrap(),
             )));
         }
         let engine_result = evaluation_result.ok().unwrap();
