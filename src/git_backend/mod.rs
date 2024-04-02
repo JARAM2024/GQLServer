@@ -163,7 +163,10 @@ impl ExtendedQueryHandler for GitQLBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        unimplemented!();
+        return Err(PgWireError::IoError(Error::new(
+            ErrorKind::Other,
+            "Unimplemented",
+        )));
     }
 
     async fn do_describe<C>(
@@ -174,7 +177,10 @@ impl ExtendedQueryHandler for GitQLBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        unimplemented!();
+        return Err(PgWireError::IoError(Error::new(
+            ErrorKind::Other,
+            "Unimplemented",
+        )));
     }
 }
 
