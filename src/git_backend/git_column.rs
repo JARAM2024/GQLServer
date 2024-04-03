@@ -10,7 +10,18 @@ use pgwire::error::{PgWireError, PgWireResult};
 use crate::git_backend::git_schema::TABLES_FIELDS_TYPES;
 
 pub fn encode_column(string: &str, index: usize) -> PgWireResult<FieldInfo> {
-    match TABLES_FIELDS_TYPES[string] {
+    let column_type = TABLES_FIELDS_TYPES.get(string);
+    if column_type.is_none() {
+        return Ok(FieldInfo::new(
+            String::from(string),
+            None,
+            None,
+            Type::INT8,
+            Format::UnifiedText.format_for(index),
+        ));
+    }
+
+    match column_type.unwrap() {
         DataType::Text => Ok(FieldInfo::new(
             String::from(string),
             None,

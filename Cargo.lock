@@ -617,7 +617,7 @@ checksum = "4271d37baee1b8c7e4b708028c57d816cf9d2434acb33a549475f78c181f6253"
 [[package]]
 name = "gitql-ast"
 version = "0.14.0"
-source = "git+https://github.com/JARAM2024/GQL.git#b3771dd112b4e591ec67070cc4fce809fc15f06e"
+source = "git+https://github.com/JARAM2024/GQL#b0d2c4a3836c025786f5f42668bf1dfd4e7d265d"
 dependencies = [
  "chrono",
  "csv",
@@ -630,7 +630,7 @@ dependencies = [
 [[package]]
 name = "gitql-engine"
 version = "0.16.0"
-source = "git+https://github.com/JARAM2024/GQL.git#b3771dd112b4e591ec67070cc4fce809fc15f06e"
+source = "git+https://github.com/JARAM2024/GQL#b0d2c4a3836c025786f5f42668bf1dfd4e7d265d"
 dependencies = [
  "gitql-ast",
  "gix",
@@ -640,7 +640,7 @@ dependencies = [
 [[package]]
 name = "gitql-parser"
 version = "0.15.0"
-source = "git+https://github.com/JARAM2024/GQL.git#b3771dd112b4e591ec67070cc4fce809fc15f06e"
+source = "git+https://github.com/JARAM2024/GQL#b0d2c4a3836c025786f5f42668bf1dfd4e7d265d"
 dependencies = [
  "gitql-ast",
 ]
@@ -2218,9 +2218,9 @@ checksum = "81cdd64d312baedb58e21336b31bc043b77e01cc99033ce76ef539f78e965ebc"
 
 [[package]]
 name = "syn"
-version = "2.0.57"
+version = "2.0.58"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11a6ae1e52eb25aab8f3fb9fca13be982a373b8f1157ca14b897a825ba4a2d35"
+checksum = "44cfb93f38070beee36b3fef7d4f5a16f27751d94b187b666a5cc5e9b0d30687"
 dependencies = [
  "proc-macro2",
  "quote",

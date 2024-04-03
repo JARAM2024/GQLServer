@@ -1,9 +1,10 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Error, ErrorKind};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use gitql_ast::statement::{Query, SelectStatement};
+use gitql_ast::object::GitQLObject;
 use pgwire::api::portal::Portal;
 use pgwire::api::query::{ExtendedQueryHandler, SimpleQueryHandler};
 use pgwire::api::results::{
@@ -34,6 +35,7 @@ mod git_schema;
 pub struct GitQLBackend {
     repositories: Arc<[String]>,
     query_parser: Arc<NoopQueryParser>,
+    query_cache: Arc<Mutex<HashMap<String, GitQLObject>>>,
 }
 
 #[async_trait]
@@ -170,28 +172,71 @@ impl ExtendedQueryHandler for GitQLBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let git_repo_result = validate_git_repositories(&self.repositories);
         let query = &portal.statement.statement;
         if query.to_lowercase().starts_with("set") {
             return Ok(Response::Execution(Tag::new("OK").with_rows(1)));
         }
 
-        if git_repo_result.is_err() {
-            println!("Failed to load git repositories");
-            return Err(PgWireError::IoError(Error::new(
-                ErrorKind::Other,
-                git_repo_result.err().unwrap(),
-            )));
+        let locked_cache = self.query_cache.lock().unwrap();
+        match locked_cache.get(query) {
+            Some(groups) => {
+                let mut fields_info: Vec<FieldInfo> = vec![];
+
+                for (index, title) in groups.titles.iter().enumerate() {
+                    let field_result = encode_column(title, index);
+                    if field_result.is_err() {
+                        continue;
+                    }
+                    fields_info.push(field_result.ok().unwrap());
+                }
+
+                let result = encode_row(groups, Arc::new(fields_info.clone()));
+                Ok(Response::Query(QueryResponse::new(
+                    Arc::new(fields_info),
+                    result,
+                )))
+            }
+            None => Ok(Response::Execution(Tag::new("OK").with_rows(1))),
+        }
+    }
+
+    async fn do_describe_statement<C>(
+        &self,
+        _client: &mut C,
+        stmt: &StoredStatement<Self::Statement>,
+    ) -> PgWireResult<DescribeStatementResponse>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
+        let param_types = stmt.parameter_types.clone();
+        let statement = &stmt.statement;
+        println!("Statement {:?}, {}", param_types, statement);
+
+        return Err(PgWireError::IoError(Error::new(
+            ErrorKind::Other,
+            "Failed to make statement result",
+        )));
+    }
+
+    async fn do_describe_portal<C>(
+        &self,
+        _client: &mut C,
+        portal: &Portal<Self::Statement>,
+    ) -> PgWireResult<DescribePortalResponse> {
+        if portal.statement.statement.to_lowercase().starts_with("set") {
+            return Ok(DescribePortalResponse::new(vec![]));
         }
 
+        let git_repo_result = validate_git_repositories(&self.repositories);
         let repos = git_repo_result.ok().unwrap();
+
         let schema = Schema {
             tables_fields_names: TABLES_FIELDS_NAMES.to_owned(),
             tables_fields_types: TABLES_FIELDS_TYPES.to_owned(),
         };
 
         let mut env = Environment::new(schema);
-        let query = query.split(';').next().unwrap();
+        let query = &portal.statement.statement.split(';').next().unwrap();
         let tokenizer_result = tokenizer::tokenize(query.to_string());
         if tokenizer_result.is_err() {
             println!("Cannot tokenize result");
@@ -266,98 +311,13 @@ impl ExtendedQueryHandler for GitQLBackend {
                 fields_info.push(field_result.ok().unwrap());
             }
 
-            let result = encode_row(&groups, Arc::new(fields_info.clone()));
-            return Ok(Response::Query(QueryResponse::new(
-                Arc::new(fields_info),
-                result,
-            )));
+            let mut locked_cache = self.query_cache.lock().unwrap();
+            locked_cache.insert(query.to_string(), groups);
+
+            return Ok(DescribePortalResponse::new(fields_info));
         }
 
-        Ok(Response::Execution(Tag::new("OK").with_rows(1)))
-    }
-
-    async fn do_describe_statement<C>(
-        &self,
-        _client: &mut C,
-        stmt: &StoredStatement<Self::Statement>,
-    ) -> PgWireResult<DescribeStatementResponse>
-    where
-        C: ClientInfo + Unpin + Send + Sync,
-    {
-        let param_types = stmt.parameter_types.clone();
-        let statement = &stmt.statement;
-        println!("Statement {:?}, {}", param_types, statement);
-
-        return Err(PgWireError::IoError(Error::new(
-            ErrorKind::Other,
-            "Failed to make statement result",
-        )));
-    }
-
-    async fn do_describe_portal<C>(
-        &self,
-        _client: &mut C,
-        portal: &Portal<Self::Statement>,
-    ) -> PgWireResult<DescribePortalResponse> {
-        if portal.statement.statement.to_lowercase().starts_with("set") {
-            return Ok(DescribePortalResponse::new(vec![]));
-        }
-
-        let schema = Schema {
-            tables_fields_names: TABLES_FIELDS_NAMES.to_owned(),
-            tables_fields_types: TABLES_FIELDS_TYPES.to_owned(),
-        };
-
-        let mut env = Environment::new(schema);
-        let query = &portal.statement.statement.split(';').next().unwrap();
-        let tokenizer_result = tokenizer::tokenize(query.to_string());
-        if tokenizer_result.is_err() {
-            println!("Cannot tokenize result");
-            return Err(PgWireError::IoError(Error::new(
-                ErrorKind::Other,
-                tokenizer_result.err().unwrap().message().to_owned(),
-            )));
-        }
-
-        let tokens = tokenizer_result.ok().unwrap();
-        if tokens.is_empty() {
-            println!("Empty Tokens");
-            return Err(PgWireError::IoError(Error::new(
-                ErrorKind::Other,
-                "Empty Tokens",
-            )));
-        }
-
-        let parser_result = parser::parse_gql(tokens, &mut env);
-        if parser_result.is_err() {
-            let parser_err = parser_result.err().unwrap();
-            let error_message =
-                parser_err.message().to_owned() + "\nHelp: " + &parser_err.helps().join("\n");
-            println!("Cannot parse result");
-            return Err(PgWireError::IoError(Error::new(
-                ErrorKind::Other,
-                error_message,
-            )));
-        }
-
-        let query_node = parser_result.ok().unwrap();
-        match query_node {
-            Query::Select(select_query) => match select_query.statements.get("select") {
-                Some(statement) => match statement.as_any().downcast_ref::<SelectStatement>() {
-                    Some(select_statement) => Ok(DescribePortalResponse::new(
-                        select_statement
-                            .fields_names
-                            .iter()
-                            .enumerate()
-                            .map(|(index, title)| encode_column(title, index).ok().unwrap())
-                            .collect(),
-                    )),
-                    None => Ok(DescribePortalResponse::new(vec![])),
-                },
-                None => Ok(DescribePortalResponse::new(vec![])),
-            },
-            _ => Ok(DescribePortalResponse::new(vec![])),
-        }
+        return Ok(DescribePortalResponse::new(vec![]));
     }
 }
 
@@ -394,6 +354,7 @@ impl MakeHandler for MakeGitQLBackend {
         Arc::new(GitQLBackend {
             repositories: self.repositories.clone(),
             query_parser: self.query_parser.clone(),
+            query_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 }
