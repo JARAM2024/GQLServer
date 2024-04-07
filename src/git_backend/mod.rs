@@ -26,11 +26,13 @@ use gitql_parser::tokenizer;
 
 use git_column::encode_column;
 use git_row::encode_row;
+use parameter::make_qeury;
 
 mod git_column;
 mod git_data_provider;
 mod git_row;
 mod git_schema;
+mod parameter;
 
 pub struct GitQLBackend {
     repositories: Arc<[String]>,
@@ -172,7 +174,7 @@ impl ExtendedQueryHandler for GitQLBackend {
     where
         C: ClientInfo + Unpin + Send + Sync,
     {
-        let query = &portal.statement.statement;
+        let query = &make_qeury(portal);
         if query.to_lowercase().starts_with("set") {
             return Ok(Response::Execution(Tag::new("OK").with_rows(1)));
         }
@@ -223,7 +225,9 @@ impl ExtendedQueryHandler for GitQLBackend {
         _client: &mut C,
         portal: &Portal<Self::Statement>,
     ) -> PgWireResult<DescribePortalResponse> {
-        if portal.statement.statement.to_lowercase().starts_with("set") {
+        let first_query = make_qeury(portal);
+        let query = first_query.split(';').next().unwrap();
+        if query.to_lowercase().starts_with("set") {
             return Ok(DescribePortalResponse::new(vec![]));
         }
 
@@ -236,7 +240,6 @@ impl ExtendedQueryHandler for GitQLBackend {
         };
 
         let mut env = Environment::new(schema);
-        let query = &portal.statement.statement.split(';').next().unwrap();
         let tokenizer_result = tokenizer::tokenize(query.to_string());
         if tokenizer_result.is_err() {
             println!("Cannot tokenize result");
